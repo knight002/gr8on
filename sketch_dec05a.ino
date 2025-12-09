@@ -28,7 +28,7 @@ static const uint16_t screenWidth = 480;
 static const uint16_t screenHeight = 480;
 //#define LVGL_BUFFER_RATIO 6
 enum { SCREENBUFFER_SIZE_PIXELS = screenWidth * LVGL_BUFFER_RATIO };
-static lv_color_t *buf;
+//static lv_color_t *buf;
 
 
 //uint32_t screenWidth;
@@ -48,6 +48,7 @@ Arduino_ESP32RGBPanel *rgbpanel = new Arduino_ESP32RGBPanel(
   5 /* B0 */, 45 /* B1 */, 48 /* B2 */, 47 /* B3 */, 21 /* B4 */,
   1 /* hsync_polarity */, 10 /* hsync_front_porch */, 8 /* hsync_pulse_width */, 50 /* hsync_back_porch */,
   1 /* vsync_polarity */, 10 /* vsync_front_porch */, 8 /* vsync_pulse_width */, 20 /* vsync_back_porch */);
+
 Arduino_RGB_Display *gfx = new Arduino_RGB_Display(
   480 /* width */, 480 /* height */, rgbpanel, 2 /* rotation */, true /* auto_flush */,
   bus, GFX_NOT_DEFINED /* RST */, st7701_type1_init_operations, sizeof(st7701_type1_init_operations));
@@ -226,23 +227,28 @@ void setup() {
 
   lv_init();
 
+  lv_color_t *buf1 = (lv_color_t *)heap_caps_malloc(screenWidth * screenHeight / 4 * sizeof(lv_color_t), MALLOC_CAP_DMA);
+
+  lv_color_t *buf2 = (lv_color_t *)heap_caps_malloc(screenWidth * screenHeight / 4 * sizeof(lv_color_t), MALLOC_CAP_DMA);
+
+
 #ifdef ESP32
-    buf = (lv_color_t*) heap_caps_malloc( sizeof(lv_color_t) * screenWidth * screenHeight / LVGL_BUFFER_RATIO, MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT );
+    //buf = (lv_color_t*) heap_caps_malloc( sizeof(lv_color_t) * screenWidth * screenHeight / LVGL_BUFFER_RATIO, MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT );
     //static uint16_t buf[480*480 / 10];
     //static uint16_t buf2[480*480 / 10];
     //buf = (lv_color_t *) heap_caps_malloc( sizeof(lv_color_t) * screenWidth * LVGL_BUFFER_RATIO, MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT );
 #else
-    lv_color_t buf = (lv_color_t*) malloc( sizeof(lv_color_t) * screenWidth * screenHeight / LVGL_BUFFER_RATIO );
+    //lv_color_t buf = (lv_color_t*) malloc( sizeof(lv_color_t) * screenWidth * screenHeight / LVGL_BUFFER_RATIO );
     //buf = (lv_color_t *) malloc( sizeof(lv_color_t) * screenWidth * LVGL_BUFFER_RATIO );
 #endif
-    if (!buf) {
+    if (!buf1) {
         Serial.println("LVGL buf allocate failed!");
     }
     else
     {
         static lv_disp_t* disp;
         disp = lv_display_create( screenWidth, screenHeight );
-        lv_display_set_buffers( disp, buf, NULL, SCREENBUFFER_SIZE_PIXELS * sizeof(lv_color_t), LV_DISPLAY_RENDER_MODE_PARTIAL );
+        lv_display_set_buffers( disp, buf1, buf2, SCREENBUFFER_SIZE_PIXELS * sizeof(lv_color_t), LV_DISPLAY_RENDER_MODE_PARTIAL );
         lv_display_set_flush_cb( disp, my_disp_flush );
 
         static lv_indev_t* indev;
@@ -255,7 +261,7 @@ void setup() {
         ui_init();
 
 
-  USBSerial.println("Setup done");
+        USBSerial.println("Setup done");
     }
 }
 
