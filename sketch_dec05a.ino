@@ -1,5 +1,5 @@
-#include <lvgl.h>
-#include "Arduino_GFX_Library.h"
+#include <lvgl.h> //
+#include "Arduino_GFX_Library.h"  //1.5.3
 #include "lv_conf.h"
 //#include <demos/lv_demos.h>
 #include <ui.h>
@@ -18,12 +18,23 @@ float angleY = 0;
 bool rotation = false;
 
 HWCDC USBSerial;
-#define EXAMPLE_LVGL_TICK_PERIOD_MS 2
+#define EXAMPLE_LVGL_TICK_PERIOD_MS 1
 
-uint32_t screenWidth;
-uint32_t screenHeight;
 
-static lv_disp_draw_buf_t draw_buf;
+enum BoardConstants { GFX_BL=-1, LVGL_BUFFER_RATIO=6 };
+
+
+static const uint16_t screenWidth = 480;
+static const uint16_t screenHeight = 480;
+//#define LVGL_BUFFER_RATIO 6
+enum { SCREENBUFFER_SIZE_PIXELS = screenWidth * LVGL_BUFFER_RATIO };
+static lv_color_t *buf;
+
+
+//uint32_t screenWidth;
+//uint32_t screenHeight;
+
+static lv_draw_buf_t draw_buf;
 // static lv_color_t buf[screenWidth * screenHeight / 10];
 
 Arduino_DataBus *bus = new Arduino_SWSPI(
@@ -50,14 +61,16 @@ void my_print(const char *buf) {
 #endif
 
 /* Display flushing */
-void my_disp_flush(lv_disp_drv_t *disp, const lv_area_t *area, lv_color_t *color_p) {
+void my_disp_flush(lv_display_t *disp, const lv_area_t *area, uint8_t *pixelmap)
+{
   uint32_t w = (area->x2 - area->x1 + 1);
   uint32_t h = (area->y2 - area->y1 + 1);
 
 #if (LV_COLOR_16_SWAP != 0)
-  gfx->draw16bitBeRGBBitmap(area->x1, area->y1, (uint16_t *)&color_p->full, w, h);
+  //gfx->draw16bitBeRGBBitmap(area->x1, area->y1, (uint16_t *)&color_p->full, w, h);
 #else
-  gfx->draw16bitRGBBitmap(area->x1, area->y1, (uint16_t *)&color_p->full, w, h);
+  //gfx->draw16bitRGBBitmap(area->x1, area->y1, (uint16_t *)&color_p->full, w, h);
+  gfx->draw16bitRGBBitmap( area->x1, area->y1, (uint16_t*) pixelmap, w, h );
 #endif
 
   lv_disp_flush_ready(disp);
@@ -77,7 +90,7 @@ void example_increase_reboot(void *arg) {
 }
 
 /*Read the touchpad*/
-void my_touchpad_read(lv_indev_drv_t *indev_driver, lv_indev_data_t *data) {
+void my_touchpad_read(lv_indev_t *indev_driver, lv_indev_data_t *data) {
   uint8_t touched = GT911.getPoint(x, y, GT911.getSupportTouchPoint());
 
   if (touched > 0) {
@@ -178,6 +191,11 @@ bool init_gt911_with_probe(int sda_pin, int scl_pin) {
   }
 }
 
+/*Set tick routine needed for LVGL internal timings*/
+static uint32_t my_tick_get_cb (void) { 
+  return millis();
+}
+
 void setup() {
   USBSerial.begin(115200); /* prepare for possible serial debug */
 
@@ -203,70 +221,42 @@ void setup() {
 
   gfx->begin();
 
-  screenWidth = gfx->width();
-  screenHeight = gfx->height();
+  //screenWidth = gfx->width();
+  //screenHeight = gfx->height();
 
   lv_init();
 
-  lv_color_t *buf1 = (lv_color_t *)heap_caps_malloc(screenWidth * screenHeight / 4 * sizeof(lv_color_t), MALLOC_CAP_DMA);
-
-  lv_color_t *buf2 = (lv_color_t *)heap_caps_malloc(screenWidth * screenHeight / 4 * sizeof(lv_color_t), MALLOC_CAP_DMA);
-
-  String LVGL_Arduino = "Hello Arduino! ";
-  LVGL_Arduino += String('V') + lv_version_major() + "." + lv_version_minor() + "." + lv_version_patch();
-
-  USBSerial.println(LVGL_Arduino);
-  USBSerial.println("I am LVGL_Arduino");
-
-
-
-#if LV_USE_LOG != 0
-  lv_log_register_print_cb(my_print); /* register print function for debugging */
+#ifdef ESP32
+    buf = (lv_color_t*) heap_caps_malloc( sizeof(lv_color_t) * screenWidth * screenHeight / LVGL_BUFFER_RATIO, MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT );
+    //static uint16_t buf[480*480 / 10];
+    //static uint16_t buf2[480*480 / 10];
+    //buf = (lv_color_t *) heap_caps_malloc( sizeof(lv_color_t) * screenWidth * LVGL_BUFFER_RATIO, MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT );
+#else
+    lv_color_t buf = (lv_color_t*) malloc( sizeof(lv_color_t) * screenWidth * screenHeight / LVGL_BUFFER_RATIO );
+    //buf = (lv_color_t *) malloc( sizeof(lv_color_t) * screenWidth * LVGL_BUFFER_RATIO );
 #endif
+    if (!buf) {
+        Serial.println("LVGL buf allocate failed!");
+    }
+    else
+    {
+        static lv_disp_t* disp;
+        disp = lv_display_create( screenWidth, screenHeight );
+        lv_display_set_buffers( disp, buf, NULL, SCREENBUFFER_SIZE_PIXELS * sizeof(lv_color_t), LV_DISPLAY_RENDER_MODE_PARTIAL );
+        lv_display_set_flush_cb( disp, my_disp_flush );
 
-  lv_disp_draw_buf_init(&draw_buf, buf1, buf2, screenWidth * screenHeight / 4);
+        static lv_indev_t* indev;
+        indev = lv_indev_create();
+        lv_indev_set_type( indev, LV_INDEV_TYPE_POINTER );
+        lv_indev_set_read_cb( indev, my_touchpad_read );
 
-  /*Initialize the display*/
-  static lv_disp_drv_t disp_drv;
-  lv_disp_drv_init(&disp_drv);
-  /*Change the following line to your display resolution*/
-  disp_drv.hor_res = screenWidth;
-  disp_drv.ver_res = screenHeight;
-  disp_drv.flush_cb = my_disp_flush;
-  disp_drv.draw_buf = &draw_buf;
-  disp_drv.sw_rotate = 1;  // add for rotation
-  // disp_drv.rotated = LV_DISP_ROT_90;
-  lv_disp_drv_register(&disp_drv);
+        lv_tick_set_cb( my_tick_get_cb );
 
-  /*Initialize the (dummy) input device driver*/
-  static lv_indev_drv_t indev_drv;
-  lv_indev_drv_init(&indev_drv);
-  indev_drv.type = LV_INDEV_TYPE_POINTER;
-  indev_drv.read_cb = my_touchpad_read;
-  lv_indev_drv_register(&indev_drv);
+        ui_init();
 
-  const esp_timer_create_args_t lvgl_tick_timer_args = {
-    .callback = &example_increase_lvgl_tick,
-    .name = "lvgl_tick"
-  };
-
-  const esp_timer_create_args_t reboot_timer_args = {
-    .callback = &example_increase_reboot,
-    .name = "reboot"
-  };
-
-  esp_timer_handle_t lvgl_tick_timer = NULL;
-  esp_timer_create(&lvgl_tick_timer_args, &lvgl_tick_timer);
-  esp_timer_start_periodic(lvgl_tick_timer, EXAMPLE_LVGL_TICK_PERIOD_MS * 1000);
-
-  //lv_demo_widgets();
-  // lv_demo_benchmark();
-  // lv_demo_keypad_encoder();
-  // lv_demo_music();
-  // lv_demo_stress();
-  ui_init();
 
   USBSerial.println("Setup done");
+    }
 }
 
 void loop() {
